@@ -19,19 +19,3 @@ A static, client-side web app for browsing your [xAI Grok](https://grok.com) dat
 2. Open the app (hosted or local)
 3. Click **Open Grok Export Folder** and select the extracted export directory
 4. Browse your conversations
-
-## Running Locally
-
-No build step needed. Serve the repo root with any static file server:
-
-```bash
-npx serve .
-# or
-python -m http.server
-```
-
-Then open `http://localhost:3000` (or whatever port) in Chrome or Edge.
-
-## Deployment
-
-Deploy the repo root as a static site. Works with GitHub Pages, Netlify, Vercel, etc. — just point the host at `index.html`.
