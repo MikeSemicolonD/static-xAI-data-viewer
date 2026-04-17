@@ -1,4 +1,4 @@
-# xAI (Grok) Export Viewer
+# [xAI (Grok) Export Viewer](https://mikesemicolond.github.io/static-xAI-data-viewer/)
 
 A static, client-side web app for browsing your [xAI Grok](https://grok.com) data export. No server, no uploads — your data never leaves your browser.
 
