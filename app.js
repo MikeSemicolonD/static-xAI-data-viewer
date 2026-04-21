@@ -532,11 +532,8 @@ const MessageRenderer = (() => {
     if (imageUrl) {
       const fullUrl = GROK_ASSET_BASE + encodeURI(imageUrl);
       const safeUrl = escapeHtml(fullUrl);
-      html += '<a class="grok-card-image-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">';
-      html += '<img class="grok-card-image" src="' + safeUrl + '" alt="' + escapeHtml(imageTitle) +
-              '" loading="lazy" onerror="this.style.display=\'none\';var n=this.nextElementSibling;if(n)n.style.display=\'block\';" />';
-      html += '<div class="grok-card-image-fallback">View on grok.com →</div>';
-      html += '</a>';
+      html += '<a class="grok-card-image-link" href="' + safeUrl +
+              '" target="_blank" rel="noopener noreferrer">View on grok.com →</a>';
     } else if (ref.error) {
       html += '<div class="grok-card-placeholder grok-card-placeholder--error">⚠ ' +
               escapeHtml(ref.error) + '</div>';

@@ -439,25 +439,17 @@ body {
 
 .grok-card-image-link {
   display: block;
-  text-decoration: none;
-}
-.grok-card-image {
-  max-width: 100%;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  display: block;
-}
-.grok-card-image:hover {
-  border-color: var(--accent-blue);
-}
-.grok-card-image-fallback {
-  display: none;
   padding: 14px;
   text-align: center;
+  text-decoration: none;
   color: var(--accent-blue);
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-sm);
   font-size: 0.85rem;
+}
+.grok-card-image-link:hover {
+  border-color: var(--accent-blue);
+  background: var(--bg-hover);
 }
 
 .grok-card-placeholder {
