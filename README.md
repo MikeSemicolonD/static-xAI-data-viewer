@@ -1,6 +1,6 @@
 # [xAI (Grok) Export Viewer](https://mikesemicolond.github.io/static-xAI-data-viewer/)
 
-A static, client-side web app for browsing your [xAI Grok](https://grok.com) data export. No server, no uploads — your data never leaves your browser.
+A static, client-side web app for browsing your [xAI Grok](https://grok.com) data export. No server, no uploads — your **data stays local** and never leaves your browser.
 
 ## Features
 
@@ -11,11 +11,12 @@ A static, client-side web app for browsing your [xAI Grok](https://grok.com) dat
 
 ## Requirements
 
-**Chrome or Edge only.** The app uses the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API) to read your local export folder. Firefox does not support this API.
+Chrome and Edge use the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API); Firefox and Safari fall back to a standard directory-picker input. **Either way, your data stays local.**
 
 ## Usage
 
-1. Request your data export from [x.ai/account](https://x.ai/account) and extract the ZIP
-2. Open the app (hosted or local)
-3. Click **Open Grok Export Folder** and select the extracted export directory
+1. Request your data export from [accounts.x.ai/data](https://accounts.x.ai/data) and extract the ZIP
+    - *Data* &#8594; *Download account data* &#8594; *Download*
+2. Open [the app](<https://mikesemicolond.github.io/static-xAI-data-viewer/>)
+3. Click **Open Grok Export Folder** and select the extracted folder (the viewer will auto-detect your export; if multiple are present, you'll be prompted to pick one)
 4. Browse your conversations

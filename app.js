@@ -554,19 +554,242 @@ const SearchController = (() => {
   return { initSearch };
 })();
 
+// ── FallbackFS ────────────────────────────────────────────────────────────────
+// Adapter that turns a FileList from <input webkitdirectory> into objects
+// shaped like FileSystemDirectoryHandle / FileSystemFileHandle so the rest of
+// the app can treat both sources identically.
+
+const FallbackFS = (() => {
+  function makeDirNode(name) {
+    const node = {
+      kind: 'directory',
+      name,
+      _children: new Map(),
+      async *entries() {
+        for (const [childName, child] of this._children) yield [childName, child];
+      },
+    };
+    return node;
+  }
+
+  function makeFileNode(name, file) {
+    return {
+      kind: 'file',
+      name,
+      _file: file,
+      async getFile() { return this._file; },
+    };
+  }
+
+  function buildRoot(fileList) {
+    const files = Array.from(fileList);
+    if (files.length === 0) return null;
+
+    const rootName = files[0].webkitRelativePath.split('/')[0] || 'root';
+    const root = makeDirNode(rootName);
+
+    for (const file of files) {
+      const parts = file.webkitRelativePath.split('/');
+      // parts[0] is the root folder; descend through intermediate dirs, then attach file.
+      let cursor = root;
+      for (let i = 1; i < parts.length - 1; i++) {
+        const segment = parts[i];
+        let next = cursor._children.get(segment);
+        if (!next) {
+          next = makeDirNode(segment);
+          cursor._children.set(segment, next);
+        }
+        cursor = next;
+      }
+      const leafName = parts[parts.length - 1];
+      cursor._children.set(leafName, makeFileNode(leafName, file));
+    }
+
+    return root;
+  }
+
+  function pickDirectory() {
+    return new Promise(resolve => {
+      const input = document.getElementById('folder-input');
+      if (!input) { resolve(null); return; }
+
+      const onChange = () => {
+        input.removeEventListener('change', onChange);
+        const files = input.files;
+        input.value = '';
+        if (!files || files.length === 0) { resolve(null); return; }
+        resolve(buildRoot(files));
+      };
+      input.addEventListener('change', onChange);
+      input.click();
+    });
+  }
+
+  return { pickDirectory, buildRoot };
+})();
+
 // ── FolderLoader ──────────────────────────────────────────────────────────────
 
 const FolderLoader = (() => {
+  const MAX_SEARCH_DEPTH = 3;
+
+  let candidates = [];
+  let currentHandle = null;
+  const datasetCache = new Map();
+
   async function openFolder() {
     let handle;
-    try {
-      handle = await window.showDirectoryPicker({ mode: 'read' });
-    } catch (e) {
-      if (e.name !== 'AbortError') ErrorUI.showGlobal('Could not open folder: ' + e.message);
-      return;
+    if ('showDirectoryPicker' in window) {
+      try {
+        handle = await window.showDirectoryPicker({ mode: 'read' });
+      } catch (e) {
+        if (e.name !== 'AbortError') ErrorUI.showGlobal('Could not open folder: ' + e.message);
+        return;
+      }
+    } else {
+      handle = await FallbackFS.pickDirectory();
+      if (!handle) return;
     }
     AppState.rootHandle = handle;
-    await scanRoot(handle);
+
+    const found = await findExportRoots(handle, MAX_SEARCH_DEPTH);
+    if (found.length === 0) {
+      candidates = [];
+      currentHandle = null;
+      datasetCache.clear();
+      renderSwitcher();
+      await scanRoot(handle); // will surface the standard "not found" error
+      return;
+    }
+
+    candidates = found;
+    currentHandle = null;
+    datasetCache.clear();
+    renderSwitcher();
+
+    if (found.length === 1) {
+      await switchTo(found[0].handle);
+    } else {
+      showExportChooser(found);
+    }
+  }
+
+  function snapshotCurrent() {
+    return {
+      conversations: AppState.conversations,
+      filteredConvs: AppState.filteredConvs,
+      uuidFolders:   AppState.uuidFolders,
+      assetHandles:  new Map(AppState.assetHandles),
+      activeConvId:  AppState.activeConvId,
+      searchQuery:   $('#search-input').val() || '',
+    };
+  }
+
+  function restoreSnapshot(s) {
+    AppState.activeObjectURLs.forEach(u => URL.revokeObjectURL(u));
+    AppState.activeObjectURLs = [];
+
+    AppState.conversations = s.conversations;
+    AppState.filteredConvs = s.filteredConvs;
+    AppState.uuidFolders   = s.uuidFolders;
+    AppState.assetHandles  = s.assetHandles;
+    AppState.activeConvId  = s.activeConvId;
+
+    $('#search-input').val(s.searchQuery);
+    SidebarController.renderFolders(s.uuidFolders);
+    SidebarController.renderConversations(s.filteredConvs);
+
+    $('#welcome-screen').hide();
+    $('#export-chooser').attr('hidden', true).empty();
+
+    if (s.activeConvId) {
+      SidebarController.setActiveConversation(s.activeConvId);
+    } else {
+      $('#chat-header, #chat-messages').attr('hidden', true).empty();
+    }
+    ErrorUI.clearGlobal();
+  }
+
+  async function switchTo(handle) {
+    if (currentHandle && currentHandle !== handle) {
+      datasetCache.set(currentHandle, snapshotCurrent());
+    }
+    currentHandle = handle;
+
+    if (datasetCache.has(handle)) {
+      restoreSnapshot(datasetCache.get(handle));
+    } else {
+      AppState.activeObjectURLs.forEach(u => URL.revokeObjectURL(u));
+      AppState.activeObjectURLs = [];
+      AppState.activeConvId = null;
+      $('#search-input').val('');
+      $('#chat-header, #chat-messages').attr('hidden', true).empty();
+      $('#export-chooser').attr('hidden', true).empty();
+      await scanRoot(handle);
+    }
+    renderSwitcher();
+  }
+
+  function renderSwitcher() {
+    const $sel = $('#dataset-select');
+    if (candidates.length <= 1) {
+      $sel.attr('hidden', true).empty();
+      return;
+    }
+    $sel.removeAttr('hidden').empty();
+    candidates.forEach(({ handle, path }, i) => {
+      const $opt = $('<option>').val(i).text(handle.name).attr('title', path || handle.name);
+      if (handle === currentHandle) $opt.prop('selected', true);
+      $sel.append($opt);
+    });
+  }
+
+  function onSwitcherChange() {
+    const idx = parseInt($('#dataset-select').val(), 10);
+    const entry = candidates[idx];
+    if (entry) switchTo(entry.handle);
+  }
+
+  async function findExportRoots(dirHandle, depth) {
+    const found = [];
+    async function walk(handle, path, remaining) {
+      let hasJson = false;
+      const subdirs = [];
+      try {
+        for await (const [name, entry] of handle.entries()) {
+          if (entry.kind === 'file' && name === 'prod-grok-backend.json') hasJson = true;
+          else if (entry.kind === 'directory') subdirs.push([name, entry]);
+        }
+      } catch (e) { return; }
+
+      if (hasJson) { found.push({ handle, path }); return; }
+      if (remaining <= 0) return;
+      for (const [name, sub] of subdirs) {
+        await walk(sub, path ? `${path}/${name}` : name, remaining - 1);
+      }
+    }
+    await walk(dirHandle, dirHandle.name || '', depth);
+    return found;
+  }
+
+  function showExportChooser(candidates) {
+    $('#welcome-screen').hide();
+    $('#chat-header, #chat-messages').attr('hidden', true);
+
+    const $chooser = $('#export-chooser').empty().removeAttr('hidden');
+    $chooser.append($('<h2>').text('Multiple exports found'));
+    $chooser.append($('<p>').text('Select which export to open:'));
+
+    const $list = $('<ul class="export-chooser-list">');
+    candidates.forEach(({ handle, path }) => {
+      const $btn = $('<button class="export-chooser-item">').text(path || handle.name);
+      $btn.on('click', async () => {
+        $chooser.attr('hidden', true).empty();
+        await switchTo(handle);
+      });
+      $list.append($('<li>').append($btn));
+    });
+    $chooser.append($list);
   }
 
   async function scanRoot(dirHandle) {
@@ -620,21 +843,24 @@ const FolderLoader = (() => {
     return file.text();
   }
 
-  return { openFolder };
+  return { openFolder, onSwitcherChange };
 })();
 
 // ── Entry Point ───────────────────────────────────────────────────────────────
 
 $(function () {
-  // Check for File System Access API support
-  if (!('showDirectoryPicker' in window)) {
-    ErrorUI.showGlobal('Your browser does not support the File System Access API. Please use Chrome or Edge 86+.');
+  // Require either File System Access API or <input webkitdirectory>
+  const hasFSAA = 'showDirectoryPicker' in window;
+  const hasWebkitDir = 'webkitdirectory' in HTMLInputElement.prototype;
+  if (!hasFSAA && !hasWebkitDir) {
+    ErrorUI.showGlobal('Your browser does not support directory selection. Please use a recent version of Chrome, Edge, Firefox, or Safari.');
     $('#open-folder-btn, #welcome-open-btn').prop('disabled', true);
   }
 
   // Wire buttons
   $('#open-folder-btn').on('click', FolderLoader.openFolder);
   $('#welcome-open-btn').on('click', FolderLoader.openFolder);
+  $('#dataset-select').on('change', FolderLoader.onSwitcherChange);
 
   // Conversation list click (event delegation)
   $('#conv-list').on('click keydown', '.conv-item', function (e) {
@@ -650,4 +876,23 @@ $(function () {
 
   // Init search
   SearchController.initSearch();
+
+  // Mobile sidebar toggle
+  const $body = $('body');
+  function closeSidebar() {
+    $body.removeClass('sidebar-open');
+    $('#sidebar-toggle').attr('aria-expanded', 'false');
+    $('#sidebar-backdrop').attr('hidden', true);
+  }
+  function toggleSidebar() {
+    const nowOpen = !$body.hasClass('sidebar-open');
+    $body.toggleClass('sidebar-open', nowOpen);
+    $('#sidebar-toggle').attr('aria-expanded', String(nowOpen));
+    $('#sidebar-backdrop').attr('hidden', !nowOpen);
+  }
+  $('#sidebar-toggle').on('click', toggleSidebar);
+  $('#sidebar-backdrop').on('click', closeSidebar);
+  $('#conv-list, #folder-list').on('click', '.conv-item, .folder-item', () => {
+    if (window.matchMedia('(max-width: 640px)').matches) closeSidebar();
+  });
 });

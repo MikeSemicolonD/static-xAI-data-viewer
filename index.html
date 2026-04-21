@@ -9,14 +9,17 @@
 </head>
 <body>
   <header id="app-header">
+    <button id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">&#9776;</button>
     <span class="app-title">&#x1F916; Grok Export Viewer</span>
     <div class="header-controls">
+      <select id="dataset-select" aria-label="Switch dataset" hidden></select>
       <input type="text" id="search-input" placeholder="Search conversations..." aria-label="Search conversations">
       <button id="open-folder-btn">&#x1F4C2; Open Folder</button>
     </div>
   </header>
 
   <div id="app-body">
+    <div id="sidebar-backdrop" hidden></div>
     <aside id="sidebar">
       <div id="sidebar-conversations">
         <div class="sidebar-section-label">
@@ -36,13 +39,14 @@
         <h2>Grok Export Viewer</h2>
         <p>Open your Grok data export folder to browse conversations, images, and files.</p>
         <button id="welcome-open-btn">&#x1F4C2; Open Grok Export Folder</button>
-        <p class="browser-note">Requires Chrome or Edge &mdash; uses the File System Access API.</p>
       </div>
       <div id="chat-header" hidden></div>
       <div id="chat-messages" hidden></div>
+      <div id="export-chooser" hidden></div>
     </main>
   </div>
 
+  <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
   <script src="app.js"></script>
 </body>
 </html>
