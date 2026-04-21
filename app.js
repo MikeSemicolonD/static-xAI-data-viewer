@@ -20,6 +20,29 @@ const AppState = {
 const UUID_STRICT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_LOOSE_RE  = /^[0-9a-f\-]{32,}$/i;
 const IMAGINE_LINK_RE = /https:\/\/grok\.com\/imagine\/post\/[0-9a-f\-]+/gi;
+const GROK_RENDER_RE = /<grok:render\b[^>]*>[\s\S]*?<\/grok:render>/g;
+
+// Best-guess base for Grok-hosted generated image assets. Export files don't
+// include the actual image bytes; this lets the user click through (or view
+// inline) when logged into grok.com in the same browser. Swap if wrong.
+const GROK_ASSET_BASE = 'https://assets.grok.com/';
+
+// ── Date formatting ───────────────────────────────────────────────────────────
+
+function formatDate(d, opts) {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+  const o = opts || {};
+  if (o.timeOnly) {
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  if (o.short) {
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
 
 // ── ErrorUI ───────────────────────────────────────────────────────────────────
 
@@ -90,7 +113,7 @@ const JsonParser = (() => {
     return {
       id:         c.id         ?? c.conversation_id ?? c.uuid ?? crypto.randomUUID(),
       title:      c.title      ?? c.name            ?? c.subject ?? '(Untitled)',
-      createTime: c.create_time ?? c.created_at     ?? c.timestamp ?? null,
+      createTime: parseTimestamp(c.create_time ?? c.created_at ?? c.timestamp),
       messages:   normalizeMessages(raw),
     };
   }
@@ -108,8 +131,55 @@ const JsonParser = (() => {
       sender:      normalizeSender(m.sender ?? m.role ?? m.author ?? 'unknown'),
       content:     m.message ?? m.content ?? m.text ?? m.body ?? '',
       attachments: Array.isArray(m.file_attachments) ? m.file_attachments : [],
+      cards:       parseCardAttachments(m.card_attachments_json),
+      legacyImages: parseLegacyImages(m.generated_image_urls, m.query, m.error),
+      createTime:  parseTimestamp(m.create_time ?? m.created_at ?? m.timestamp),
       metadata:    m.metadata ?? {},
     };
+  }
+
+  // Accepts ISO strings, numeric epoch ms, and Mongo extended JSON
+  // ({ $date: { $numberLong: "..." } } or { $date: "..." }).
+  function parseTimestamp(raw) {
+    if (raw == null) return null;
+    if (typeof raw === 'number') return new Date(raw);
+    if (typeof raw === 'string') {
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof raw === 'object') {
+      const inner = raw.$date ?? raw;
+      if (typeof inner === 'string') return parseTimestamp(inner);
+      if (inner && inner.$numberLong) return new Date(Number(inner.$numberLong));
+    }
+    return null;
+  }
+
+  function parseLegacyImages(urls, query, error) {
+    if (!Array.isArray(urls) || urls.length === 0) return [];
+    const prompt = typeof query === 'string' ? query : '';
+    const err    = typeof error === 'string' ? error : '';
+    const successful = urls.filter(u => typeof u === 'string' && u.length > 0);
+    if (successful.length > 0) {
+      return successful.map(u => ({ url: u, prompt, error: '' }));
+    }
+    // All slots empty — generation failed/moderated. Render one placeholder
+    // card so the user can see the prompt and the error reason.
+    if (prompt || err) return [{ url: '', prompt, error: err }];
+    return [];
+  }
+
+  function parseCardAttachments(raw) {
+    if (!Array.isArray(raw)) return [];
+    const byId = new Map();
+    for (const entry of raw) {
+      if (typeof entry !== 'string') continue;
+      let parsed;
+      try { parsed = JSON.parse(entry); } catch (e) { continue; }
+      if (!parsed || parsed.cardType !== 'generated_image_card' || !parsed.id) continue;
+      if (!byId.has(parsed.id)) byId.set(parsed.id, parsed);
+    }
+    return Array.from(byId.values());
   }
 
   function normalizeSender(raw) {
@@ -291,7 +361,11 @@ const MessageRenderer = (() => {
   function renderConversation(conv) {
     revokeObjectURLs();
 
-    $('#chat-header').text(conv.title).removeAttr('hidden');
+    const $header = $('#chat-header').empty().removeAttr('hidden');
+    $header.append($('<span class="chat-header-title">').text(conv.title));
+    if (conv.createTime) {
+      $header.append($('<span class="chat-header-date">').text(formatDate(conv.createTime, { short: true })));
+    }
     const $messages = $('#chat-messages').empty().removeAttr('hidden');
 
     conv.messages.forEach(msg => $messages.append(buildMessageEl(msg)));
@@ -300,11 +374,21 @@ const MessageRenderer = (() => {
   function buildMessageEl(msg) {
     const senderLabel = msg.sender === 'user' ? 'You' : msg.sender === 'grok' ? 'Grok' : 'Unknown';
     const $el = $('<div>').addClass('message message--' + msg.sender);
-    $el.append($('<div class="message-sender">').text(senderLabel));
+    const $senderRow = $('<div class="message-sender">').text(senderLabel);
+    if (msg.createTime) {
+      $senderRow.append($('<span class="message-time">').text(formatDate(msg.createTime)));
+    }
+    $el.append($senderRow);
 
     const $body = $('<div class="message-body">');
-    $body.html(processMessageContent(String(msg.content || '')));
+    $body.html(processMessageContent(String(msg.content || ''), msg.cards || []));
     $el.append($body);
+
+    if (msg.legacyImages && msg.legacyImages.length > 0) {
+      msg.legacyImages.forEach(img => {
+        $body.append(buildLegacyImageCardHtml(img));
+      });
+    }
 
     // Render file attachments (images from prod-mc-asset-server)
     if (msg.attachments && msg.attachments.length > 0) {
@@ -380,7 +464,29 @@ const MessageRenderer = (() => {
     return text;
   }
 
-  function processMessageContent(text) {
+  function processMessageContent(text, cards) {
+    // Extract <grok:render> card blocks first, replace with sentinels that
+    // survive escapeHtml/markdown, then swap for card HTML at the end.
+    const cardRefs = [];
+    text = text.replace(GROK_RENDER_RE, (match) => {
+      const cardIdMatch   = match.match(/card_id="([^"]+)"/);
+      const cardTypeMatch = match.match(/card_type="([^"]+)"/);
+      const args = {};
+      const innerMatch = match.match(/^<grok:render\b[^>]*>([\s\S]*?)<\/grok:render>$/);
+      const inner = innerMatch ? innerMatch[1] : '';
+      inner.replace(/<argument\s+name="([^"]+)">([\s\S]*?)<\/argument>/g, (_, name, val) => {
+        args[name] = val;
+        return '';
+      });
+      const idx = cardRefs.length;
+      cardRefs.push({
+        cardId:   cardIdMatch   ? cardIdMatch[1]   : null,
+        cardType: cardTypeMatch ? cardTypeMatch[1] : null,
+        args,
+      });
+      return '\x01CARD_' + idx + '\x01';
+    });
+
     // Split on Grok Imagine URLs, render each segment
     const parts = text.split(IMAGINE_LINK_RE);
     const urls  = text.match(IMAGINE_LINK_RE) || [];
@@ -390,6 +496,76 @@ const MessageRenderer = (() => {
       html += renderMarkdown(part);
       if (urls[i]) html += renderImagineLink(urls[i]);
     });
+
+    html = html.replace(/\x01CARD_(\d+)\x01/g, (_, i) => {
+      const ref = cardRefs[parseInt(i, 10)];
+      const data = (cards || []).find(c => c.id === ref.cardId);
+      return buildCardHtml(ref, data);
+    });
+
+    return html;
+  }
+
+  function buildLegacyImageCardHtml(img) {
+    const title = img.error ? 'Image generation failed' : 'Generated Image';
+    return buildCardHtml(
+      { cardId: 'legacy', args: { prompt: img.prompt || '' }, error: img.error || '' },
+      { image_chunk: { imageUrl: img.url || '', imageTitle: title } }
+    );
+  }
+
+  function buildCardHtml(ref, cardData) {
+    const userPrompt = ref.args && ref.args.prompt ? ref.args.prompt : '';
+    const chunk = cardData && cardData.image_chunk;
+    const imageUrl        = chunk && chunk.imageUrl;
+    const imageTitle      = (chunk && chunk.imageTitle) || 'Generated Image';
+    const imageModel      = chunk && chunk.imageModel;
+    const upsampledPrompt = chunk && chunk.imagePrompt && chunk.imagePrompt.prompt;
+
+    let html = '<div class="grok-card grok-card--generated">';
+    html += '<div class="grok-card-header">';
+    html += '<span class="grok-card-icon">🎨</span>';
+    html += '<span class="grok-card-title">' + escapeHtml(imageTitle) + '</span>';
+    if (imageModel) html += '<span class="grok-card-model">' + escapeHtml(imageModel) + '</span>';
+    html += '</div>';
+
+    if (imageUrl) {
+      const fullUrl = GROK_ASSET_BASE + encodeURI(imageUrl);
+      const safeUrl = escapeHtml(fullUrl);
+      html += '<a class="grok-card-image-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">';
+      html += '<img class="grok-card-image" src="' + safeUrl + '" alt="' + escapeHtml(imageTitle) +
+              '" loading="lazy" onerror="this.style.display=\'none\';var n=this.nextElementSibling;if(n)n.style.display=\'block\';" />';
+      html += '<div class="grok-card-image-fallback">View on grok.com →</div>';
+      html += '</a>';
+    } else if (ref.error) {
+      html += '<div class="grok-card-placeholder grok-card-placeholder--error">⚠ ' +
+              escapeHtml(ref.error) + '</div>';
+    } else if (ref.cardId) {
+      html += '<div class="grok-card-placeholder">Image not available</div>';
+    }
+
+    const sections = [];
+    if (userPrompt) {
+      sections.push(
+        '<div class="grok-card-prompt">' +
+        '<div class="grok-card-prompt-label">Your instructions</div>' +
+        '<div class="grok-card-prompt-body">' + escapeHtml(userPrompt) + '</div>' +
+        '</div>'
+      );
+    }
+    if (upsampledPrompt && upsampledPrompt !== userPrompt) {
+      sections.push(
+        '<div class="grok-card-prompt">' +
+        '<div class="grok-card-prompt-label">Generated image prompt</div>' +
+        '<div class="grok-card-prompt-body">' + escapeHtml(upsampledPrompt) + '</div>' +
+        '</div>'
+      );
+    }
+    if (sections.length) {
+      html += '<details class="grok-card-prompts"><summary>Prompts</summary>' +
+              sections.join('') + '</details>';
+    }
+    html += '</div>';
     return html;
   }
 
@@ -484,8 +660,11 @@ const SidebarController = (() => {
     slice.forEach(conv => {
       const $li = $('<li role="option" tabindex="0">')
         .addClass('conv-item')
-        .attr('data-id', conv.id)
-        .text(conv.title);
+        .attr('data-id', conv.id);
+      $li.append($('<div class="conv-item-title">').text(conv.title));
+      if (conv.createTime) {
+        $li.append($('<div class="conv-item-date">').text(formatDate(conv.createTime, { short: true })));
+      }
 
       if (conv.id === AppState.activeConvId) $li.addClass('conv-item--active');
       $list.append($li);
@@ -510,6 +689,7 @@ const SidebarController = (() => {
   }
 
   function setActiveConversation(id) {
+    if (id === AppState.activeConvId) return;
     AppState.activeConvId = id;
     $('.conv-item').removeClass('conv-item--active');
     $(`.conv-item[data-id="${CSS.escape(id)}"]`).addClass('conv-item--active');

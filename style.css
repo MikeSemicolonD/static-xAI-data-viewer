@@ -208,6 +208,16 @@ body {
   transition: background 0.1s, color 0.1s;
   user-select: none;
 }
+.conv-item-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-item-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .conv-item:hover,
 .folder-item:hover {
   background: var(--bg-hover);
@@ -278,15 +288,29 @@ body {
 /* ── Chat header ── */
 #chat-header {
   padding: 12px 20px;
-  font-weight: 600;
-  font-size: 0.95rem;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
   flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.chat-header-title {
+  font-weight: 600;
+  font-size: 0.95rem;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+.chat-header-date {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 /* ── Chat messages ── */
@@ -338,10 +362,21 @@ body {
   letter-spacing: 0.07em;
   color: var(--text-muted);
   margin-bottom: 5px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .message--user .message-sender { color: #5a8fd4; }
 .message--grok .message-sender { color: #7a60c0; }
+
+.message-time {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
 
 /* ── Inline content renders ── */
 .message img {
@@ -371,6 +406,110 @@ body {
 }
 .attachment-wrap img:hover {
   border-color: var(--accent-blue);
+}
+
+/* ── Grok generated-image cards ── */
+.grok-card {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  max-width: 480px;
+}
+
+.grok-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+.grok-card-icon { font-size: 1.05rem; }
+.grok-card-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.grok-card-model {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-family: monospace;
+  margin-left: auto;
+}
+
+.grok-card-image-link {
+  display: block;
+  text-decoration: none;
+}
+.grok-card-image {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  display: block;
+}
+.grok-card-image:hover {
+  border-color: var(--accent-blue);
+}
+.grok-card-image-fallback {
+  display: none;
+  padding: 14px;
+  text-align: center;
+  color: var(--accent-blue);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.grok-card-placeholder {
+  padding: 14px;
+  text-align: center;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+.grok-card-placeholder--error {
+  color: #c97a7a;
+  border-color: #5a3a3a;
+  background: rgba(120, 50, 50, 0.08);
+  font-style: normal;
+}
+
+.grok-card-prompts {
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+.grok-card-prompts > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  user-select: none;
+  padding: 2px 0;
+}
+.grok-card-prompts[open] > summary {
+  margin-bottom: 6px;
+}
+
+.grok-card-prompt + .grok-card-prompt {
+  margin-top: 8px;
+}
+.grok-card-prompt-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+}
+.grok-card-prompt-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 .content-table {
