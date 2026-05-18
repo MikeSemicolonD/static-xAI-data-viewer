@@ -1,6 +1,8 @@
 # [xAI (Grok) Export Viewer](https://mikesemicolond.github.io/static-xAI-data-viewer/)
 
-A static, client-side web app for browsing your [xAI Grok](https://grok.com) data export. No server, no uploads — your **data stays local** and never leaves your browser.
+A static, client-side web app for browsing your [xAI Grok](https://grok.com) data export. No server, no uploads. 
+
+Your data **stays *local*** and ***never*** leaves your browser.
 
 ## Features
 
@@ -11,7 +13,7 @@ A static, client-side web app for browsing your [xAI Grok](https://grok.com) dat
 
 ## Requirements
 
-Chrome and Edge use the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API); Firefox and Safari fall back to a standard directory-picker input. **Either way, your data stays local.**
+Chrome and Edge use the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API); Firefox and Safari fall back to a standard directory-picker input.
 
 ## Usage
 
